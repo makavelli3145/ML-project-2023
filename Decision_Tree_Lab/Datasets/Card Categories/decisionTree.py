@@ -1,0 +1,232 @@
+import numpy as np
+from ete3 import Tree, TreeStyle, TextFace, add_face_to_node # Just a library that helps draw trees
+class_problem = 0 # 0, 1, 2, 3 # Determines which classification problem is worked on 0=Top Left, 1=Top Right, 2=Bottom Left 3=Bottom Right
+feature_names = np.array(['is_fruit', 'starts_vowel', 'end_vowel', 'data_colours', 'data_words']) # List of feature names
+
+
+# Reading in the data points
+data_file = open('card_data.txt', 'r')
+data_string = data_file.read()
+full_data = np.array(data_string.split(','))[:-1].astype(np.float64).reshape((1100,5))
+print("full_data has ", full_data.shape[0], " data points with ", full_data.shape[1], "features")
+# Reading in the 4 different labels for each data point
+labels_file = open('card_categories.txt', 'r')
+labels_string = labels_file.read()
+
+
+full_y_values = np.array(labels_string.split(','))[:-1]
+full_y_values = np.where(full_y_values == 'True', True, False).reshape((1100,4))
+print("full_y_values has labels for ", full_y_values.shape[0], " data points with ", full_y_values.shape[1], "labels per data points")
+
+
+# TODO: Use last 100 data points as test data
+test_data = full_data[:100]
+test_y_values = full_y_values[:100]
+
+# TODO: use first 1000 data points as training data
+data = full_data[1000:]
+y_values = full_y_values[1000:]
+
+
+# Note we aren't setting any hyper-parameters so we don't need a validation set
+
+# Write a function which calculates the entropy of a set of data (in general we will only pass catergory labels into the function)
+# HINT: look at np.unique, note unique returns in ascending order or alphabetically
+def calc_entropy(data):
+    # TODO: Write the function to calculate entropy. The function must return the entropy value and an array of the unique values in the data
+
+    unique,counts = np.unique(data,return_counts = True)
+    set_count = np.array([unique,counts]).T
+    set_probs = set_count[:,1]/np.sum(set_count[:,1])
+    data_entropy = -np.sum(set_probs*np.log2(set_probs))
+
+
+    return([data_entropy, unique]) # returns the entropy of the data as well as the set of unique value for the data
+
+print(calc_entropy(y_values[:,1]))
+
+
+class tree_node:
+    def __init__(self, data, labels, diagram_node, available_features):
+        self.data = data # holds the data which the tree node will use to find the best feature
+        self.labels = labels # holds the corresponding labels for each data point
+        self.diagram_node = diagram_node # Used for creating the tree diagram
+        self.available_features = available_features # Holds the list of names for the remaining features available at a tree node
+        self.feature_index = None # Holds the index of the feature in the list of features which provides the most information gain
+        self.feature_name = None # Holds the name of the feature which provides the most information gain
+        self.node_values = None # Holds the unique values of the feature which provides the most information gain
+        self.is_leaf = False # Reflects if the node is a leaf node
+        self.class_value = None # Is set to True or False if a node classifies a data point (it is a leaf node)
+        self.children = None # Array to hold the children node of this node
+        self.node_entropy = calc_entropy(labels[:,class_problem])[0] # Entropy value of the data entering the node
+                                    #(before being split by the feature which provides the most information gain)
+
+        # Three cases to consider when adding a node to the tree.
+        # 1. The node entropy is not 0, so the node still needs to split the data further, and there is still
+        #    an unused feature to split the data with
+        # 2. If the entropy is not 0 but we have already used all features to split the data
+        # 3. The entropy of the data coming into the node is 0 and so the node must just pick a classification
+        #    (ie: True or False)
+        # It may be helpful to first complete the class functions below to see how they work
+        if not (self.node_entropy == 0.0 or self.node_entropy == -0.0 or self.data.shape[1] == 0):
+            # TODO: Init an empty array for self.children, then find the feature for this node to split the data,
+            #       then descend the tree (add children to the current node)
+            self.children = np.array([])
+            self.find_feature()
+            self.descend_tree()
+
+        elif self.data.shape[1] == 0:
+            # TODO: Update self.is_leaf, get the unique values and their counts of the labels for this node's data,
+            #       then find the index of the unique value with the largest count
+            self.is_leaf = True
+            unique, counts = np.unique(labels[:,class_problem],return_counts=True)
+            majority_class = np.argmax(counts)
+            self.class_value = unique[majority_class]
+            self.feature_name = str(self.class_value)
+            self.diagram_node.name = self.feature_name
+        else:
+            self.is_leaf = True
+            self.class_value = labels[0,class_problem]
+            self.feature_name = str(labels[0,class_problem])
+            self.diagram_node.name = self.feature_name
+
+    # This function is used to calculate the information gain of each feature and pick the best feature
+    def find_feature(self):
+        print("Finding feature for new node")
+        feature_entropies = np.zeros(self.data.shape[1])            # TODO # initialize the entropy of each feature to 0
+        info_gains = np.full((self.data.shape[1],), self.node_entropy, dtype =np.float64)                   # TODO # init the info gain for each feature to equal the
+              
+                          # entropy of the data coming into the done (ie: H(D) in the formula above)
+        """
+                              for each feature in columns of data
+        """
+
+        for i in range(self.data.shape[1]): # For each feature
+            #print("Working on feature: ", i)
+            feature_entropies[i], _ = calc_entropy(self.labels[:,class_problem])          # TODO # calculate the entropy of the data into the node
+            feature_sub_classes = np.unique(self.data[:,i]) 
+                        # TODO # find the unique values for the feature we are calculation info gain for
+            
+            """Looping over the elements of the feature itself
+                    ie Traversing the feature
+        """
+            
+            for sub_clas in feature_sub_classes :                          # TODO # for each unique value of the feature
+                sub_clas_data =  np.where(self.data[:,i]==sub_clas)[0]              # TODO # find the data points where this feature value occurs
+                data_ratio =  (1/self.data.shape[0])*sub_clas_data.shape[0]                 # TODO # calc how much of the total data has this feature value
+                sub_clas_entropy = calc_entropy(self.labels[sub_clas_data,class_problem])[0]            # TODO # calc entropy for the subset of data with the feature value
+                info_gains[i] =  info_gains[i] - data_ratio *sub_clas_entropy              # TODO # update the information gain
+        
+        """
+            Now we need to choose a feature with highest gain
+        """
+        
+        chosen_feature =np.argmax(info_gains)                      # TODO # choose feature which gives mac info gain
+        self.feature_index = chosen_feature # update features of the node class
+        self.feature_name = self.available_features[self.feature_index]
+        self.diagram_node.name = self.feature_name
+        print("Found feature: ", self.feature_name)
+
+    # This function is used to add nodes to the tree once the best feature to split the data is found
+    def descend_tree(self):
+        print("Descending tree with node entropy value: ", self.node_entropy)
+        unique, counts = np.unique(self.data[:,self.feature_index],return_counts=True)                             # TODO # Find the unique values of the chosen feature
+        
+        """
+            Np.Unique returns returns a tuple of Array and numbcounts
+        """
+        
+        self.node_values = unique # Update class values which holds the values of the feature it uses
+        for feature_value in unique:                                     # TODO # For each unqiue value the chosen feature can take
+            data_for_feature_value = np.where(self.data[:,self.feature_index]==feature_value)                  # TODO # Find data where unique value for the feature occurs
+            remaining_features = np.arange(self.data.shape[1])!=self.feature_index # This just drops the chosen feature from the list of unused feature names (NOTE useful for inference below)
+            new_child_diagram_node = self.diagram_node.add_child(name="Temp") # used for making the tree diagram
+
+            # For each unique value of the chosen feature we add a new node. Some points to note
+            # First we only use the data which ass the unique value we are looking for for the feature
+            # this is found in the "data_for_feature_value" variable above
+            # Secondly we remove the feature we used to split the data, the unused features are found in the
+            # variable "remaining_features"
+            self.children = np.append(self.children,
+                tree_node(self.data[data_for_feature_value][:,remaining_features],self.labels[data_for_feature_value],
+                new_child_diagram_node, self.available_features[remaining_features]))
+
+    # This function infers (predicts) the class of a new/unseen data point. We call this on the test data points
+    def infer(self, data_point):
+        if not self.is_leaf: # if the node we are looking at is not a leaf node (can't classify the data point)
+            for i in range(self.node_values.shape[0]): # look through the set of values the node looks for
+                if self.node_values[i] == data_point[self.feature_index] :                              # TODO # to find which branch to descend down
+                    allocated_class = self.children[i].infer(data_point[np.arange(data_point.shape[0])!= self.feature_index])            # TODO # recursively run the infer function on the child node (excluding the features which have been used already, see how this was done to get "remaining_features" when decsending the tree above)
+                    return allocated_class        # return back up the tree
+            print("Error found new value, can't classify")
+        else:
+            #print("Classified data point as: ", self.class_value)
+            return(self.class_value) # If it is a leaf node then we just return the classification given by the leaf node
+
+
+t = Tree()
+diagram_root= t.add_child(name="root")# Used for diagram, creates tree and adds root node to tree diagram (use as third input to tree_node class)
+root = tree_node(data,y_values,diagram_root, feature_names)                # TODO # Use our class to train a decision tree on the training data
+print(t.get_ascii(show_internal=True)) # prints a diagram of the decision tree
+# The remainder of the window is use to draw the decsision tree. Note the last line can be removed to
+# avoid rendering the image as it can look quite bad with large trees. The printed ascii version can still be seen
+# in this case
+ts = TreeStyle()
+ts.show_leaf_name = False
+def my_layout(node):
+    F = TextFace(node.name, tight_text=True)
+    F.rotable = True
+    F.border.width = 0
+    F.margin_top = 5
+    F.margin_bottom = 5
+    F.margin_left = 5
+    F.margin_right = 5
+    add_face_to_node(F, node, column=0, position="branch-right")
+ts.layout_fn = my_layout
+ts.mode = 'r'
+ts.arc_start = 270
+ts.arc_span = 185
+ts.draw_guiding_lines = True
+ts.scale = 100
+ts.branch_vertical_margin = 100
+ts.min_leaf_separation = 100
+ts.show_scale = False
+
+#t.render(file_name="%%inline", w=500, h=500, tree_style=ts)
+
+
+# Note this block is just to check problem index 2 without the unique word data
+t2 = Tree() # Used for diagram, creates tree and adds root node to tree diagram (use as third input to tree_node class)
+root2 = t2.add_child(name ='root')    # TODO # Use our class to train a decision tree on the training data
+print(t2.get_ascii(show_internal=True))
+
+"""
+    t2 is more robust than t1
+
+    Note: as long as class problem == 0,
+    the code will work for a 1-D lables vector
+    
+    We are now about to train and test our tree
+
+"""
+count_correct = 0
+for i in range(data.shape[0]):
+    out =  root.infer(data[i])                    # TODO # infer the class on the data point
+    is_correct =(out == y_values[i,class_problem])            # TODO # check that the chosen class is the same as the true class label
+    if is_correct:
+        count_correct = count_correct + 1
+print("Final Training Accuracy: ", count_correct/y_values.shape[0])
+# Note test accuracy should be around 90% cause I've flipped 10% of train data labels
+
+
+count_correct = 0
+for i in range(test_data.shape[0]):
+    out = root.infer(data[i])                    # TODO # infer the class on the data point
+    is_correct = (out == y_values[i,class_problem])      # TODO # check that the chosen class is the same as the true class label
+    if is_correct:
+        count_correct = count_correct + 1
+print("Final Test Accuracy: ", count_correct/y_values.shape[0])
+# Note test accuracy should be around 90% cause I've flipped 10% of train data labels
+
+
+
